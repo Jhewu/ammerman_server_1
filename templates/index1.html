@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask WebSocket Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #343541; /* Dark gray background */
+            color: white; /* Text color for light contrast */
+            margin: 0;
+        }
+        .container {
+            background: #44475a; /* Slightly lighter gray background for container */
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            width: 90%;
+            max-width: 600px;
+        }
+        #messages {
+            min-height: 200px;
+            max-height: 300px;
+            overflow-y: auto;
+            border: none; /* Removed border for cleaner look */
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #505260; /* Darker gray background for messages container */
+            word-wrap: break-word; /* Ensures long words are wrapped */
+        }
+        .loading {
+            text-align: center;
+            color: #999; /* Light gray for loading text */
+            font-style: italic;
+        }
+        input[type="text"] {
+            width: calc(100% - 22px); /* Adjusts the input field to fit within container */
+            padding: 8px;
+            margin-right: 5px;
+            border-radius: 4px;
+            border: none;
+            background-color: #44475a; /* Matches container background */
+            color: white; /* Text color for light contrast */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2 style="color: white;">Who Are You Blaming?</h2> <!-- Ensures heading text color is white -->
+        <div id="messages"></div>
+        <input type="text" id="message-input" placeholder="Input text here">
+        <!-- Loading animation -->
+        <div id="loading" class="loading" style="display:none;">Loading...</div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        // Connect to the WebSocket server
+        const socket = io();
+        function sendMessage() {
+            const messageInput = document.getElementById('message-input');
+            const message = messageInput.value.trim();
+            if (message) {
+                document.getElementById('loading').style.display = 'block';
+                socket.emit('message', { message: message });
+                messageInput.value = '';
+                messageInput.placeholder = "Input text here";
+            }
+        }
+        // Add event listener to the input field for "keydown" event
+        document.getElementById('message-input').addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        });
+        const maxMessages = 10; // Define the maximum number of messages to display
+        socket.on('update_messages', function(data) {
+            const messagesContainer = document.getElementById('messages');
+            // Check if adding this message would exceed our limit
+            if (data.messages.length > maxMessages) {
+                // Remove the oldest messages until we're within the limit
+                while(messagesContainer.childElementCount >= maxMessages) {
+                    messagesContainer.removeChild(messagesContainer.firstChild);
+                }
+            }
+            // Append the new message
+            const msgElement = document.createElement('div');
+            msgElement.textContent = data.messages[data.messages.length - 1];
+            messagesContainer.appendChild(msgElement);
+            // Hide loading animation
+            document.getElementById('loading').style.display = 'none';
+        });
+        socket.on('connect', function() {
+            const messagesContainer = document.getElementById('messages');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        });
+    </script>
+</body>
+</html>
