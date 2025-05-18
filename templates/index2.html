@@ -5,89 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Flask WebSocket Chat</title>
     <style>
-        /* General body styling for dark mode */
         body {
-            font-family: "Helvetica Neue", sans-serif;
+            font-family: Arial, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #15202b; /* Dark blue-gray Twitter background */
-            color: #d9d9d9; /* Light gray text for high contrast */
+            background-color: #15202b; /* Dark gray background */
+            color: white; /* Text color for light contrast */
             margin: 0;
         }
-    
-        /* Container for the chat box */
         .container {
-            background: #192734; /* Slightly lighter dark gray-blue */
+            background: #44475a; /* Slightly lighter gray background for container */
             padding: 20px;
-            border-radius: 16px; /* Rounded edges, similar to Twitter */
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6); /* Subtle shadow for depth */
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
             width: 90%;
             max-width: 600px;
         }
-    
-        /* Styling for the messages container */
         #messages {
             min-height: 200px;
             max-height: 300px;
             overflow-y: auto;
-            border: none;
+            border: none; /* Removed border for cleaner look */
             margin-bottom: 10px;
             padding: 10px;
-            border-radius: 12px;
-            background: #243447; /* Twitter dark message container background */
-            word-wrap: break-word;
-            color: #e1e8ed; /* Light text for readability */
+            border-radius: 4px;
+            background: #505260; /* Darker gray background for messages container */
+            word-wrap: break-word; /* Ensures long words are wrapped */
         }
-    
-        /* Placeholder and loading text styling */
         .loading {
             text-align: center;
-            color: #8899a6; /* Subtle gray for placeholder/loading text */
+            color: #999; /* Light gray for loading text */
             font-style: italic;
         }
-    
-        /* Input field for sending messages */
         input[type="text"] {
-            width: calc(100% - 22px);
+            width: calc(100% - 22px); /* Adjusts the input field to fit within container */
             padding: 8px;
             margin-right: 5px;
-            border-radius: 20px; /* Rounded edges for Twitter-like input field */
-            border: 1px solid #8899a6; /* Subtle border */
-            background-color: #192734; /* Matches container background */
-            color: #d9d9d9; /* Matches the text color */
-            outline: none;
+            border-radius: 4px;
+            border: none;
+            background-color: #44475a; /* Matches container background */
+            color: white; /* Text color for light contrast */
         }
-    
-        input[type="text"]::placeholder {
-            color: #8899a6; /* Subtle placeholder color */
-        }
-    
-        /* Hover effect for input field */
-        input[type="text"]:hover {
-            border-color: #1da1f2; /* Twitter's signature blue */
-        }
-    
-        /* When input is focused */
-        input[type="text"]:focus {
-            border-color: #1da1f2; /* Twitter blue on focus */
-            outline: none;
-        }
-
     </style>
-    </head>
-    <body>
-        <div class="container">
-            <!-- Main heading with Twitter-like styling -->
-            <h2 style="color: #d9d9d9; text-align: center; font-weight: 700;">Who Should I Blame?</h2>
-            <!-- Messages container -->
-            <div id="messages"></div>
-            <!-- Input field -->
-            <input type="text" id="message-input" placeholder="Contribute to the Echo Chamber, type and press ENTER">
-            <!-- Loading animation -->
-            <div id="loading" class="loading" style="display:none;">Loading...</div>
-        </div>
+</head>
+<body>
+    <div class="container">
+        <h2 style="color: white; text-align: center;">Who Are You Blaming for COVID-19?</h2> <!-- Ensures heading text color is white and centers the text -->
+        <div id="messages"></div>
+        <input type="text" id="message-input" placeholder="Contribute to the Echo Chamber, press ENTER after typing">
+        <!-- Loading animation -->
+        <div id="loading" class="loading" style="display:none;">Loading...</div>
+    </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
         document.addEventListener('keydown', function(event) {
@@ -105,7 +75,7 @@
                 document.getElementById('loading').style.display = 'none';
                 socket.emit('message', { message: message });
                 messageInput.value = '';
-                messageInput.placeholder = "Contribute to the Echo Chamber, type and press ENTER";
+                messageInput.placeholder = "Input text here";
             }
         }
         // Add event listener to the input field for "keydown" event
@@ -128,7 +98,6 @@
             // Append the new message
             const newMessage = document.createElement('div');
             newMessage.textContent = ">> " + data.messages[data.messages.length - 1];
-            newMessage.style.fontSize = "12px"; // Example: Set the font size to 16px
             messagesContainer.appendChild(newMessage);
             messagesContainer.scrollTop = messagesContainer.scrollHeight; // Scroll to bottom
 

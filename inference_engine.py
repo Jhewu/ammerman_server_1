@@ -6,8 +6,12 @@ import random
 import os
 import time
 import csv
+import socketio
+
+sio = socketio.Client()
 
 prompt_queue = queue.Queue()
+prompt_queue_2 = queue.Queue()
 
 def start_client(message, host='0.0.0.0', port=3000):
     """CALL THIS INSTANCE 4 TIMES OR MODIFY TO ACCOMODATE"""
@@ -39,6 +43,12 @@ def load_all_models(model_names, serverPorts):
             load_in_8bit=True), serverPorts[i]))
     return models
 
+def trim_words(text): 
+    words = text.split()
+    if len(words) > MAX_TOKEN: 
+        return " ".join[:128]
+    return text
+
 def from_model_generate(model, tokenizer, prompt): 
     """
     Receives: model, tokenizer and str prompt
@@ -48,6 +58,7 @@ def from_model_generate(model, tokenizer, prompt):
 
     # Tokenize the prompt and generate inputs
     inputs = tokenizer(prompt, truncation=True, max_length=MAX_TOKEN//2, return_tensors="pt").to("cuda")  # Move inputs to GPU as well
+    print(f"\nThis shoud have been truncated! {inputs}\n")
     outputs = model.generate(
         input_ids=inputs.input_ids,
         attention_mask=inputs.attention_mask,
@@ -68,6 +79,7 @@ def from_model_generate(model, tokenizer, prompt):
     return decoded_text
 
 def send_message_to_client(host, port, message):
+    print(f"\nThis is message {message}\n")
     # Create a TCP/IP socket
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -76,10 +88,14 @@ def send_message_to_client(host, port, message):
         client_socket.connect((host, port))
         print(f"Connected to {host}:{port}")
         client_socket.sendall(message.encode('utf-8'))
-
-    finally:
-        # Clean up the connection
         client_socket.close()
+
+    except Exception as e:
+        print(f"Failed to connect to SocketIO server: {e}")
+
+    # finally:
+    #     # Clean up the connection
+    #     client_socket.close()
 
 # TCP Server Thread
 def run_tcp_server(port=4000):
@@ -110,7 +126,8 @@ def run_tcp_server(port=4000):
                 print("Received:", msg)
                 
                 # Simply pass the entire message to the TTS queue
-                prompt_queue.put((msg, client_id))    
+                prompt_queue.put((msg, client_id))  
+                # prompt_queue_2.put((msg, client_id))    
 
 def shuffle_without_reassignment(models, texts):
     if len(models) != 4 and len(texts) != 4:
@@ -130,6 +147,16 @@ def shuffle_without_reassignment(models, texts):
     shuffled_texts = [texts[indices[i]] for i in range(4)]
     
     return shuffled_models, shuffled_texts
+
+def connect_to_server(server_url='http://localhost:5000'):
+    """Connect to the Flask SocketIO server"""
+    try:
+        sio.connect(server_url)
+        print(f"Connected to SocketIO server at {server_url}")
+        return True
+    except Exception as e:
+        print(f"Failed to connect to SocketIO server: {e}")
+        return False
 
 def get_random_row_from_csv(csv_files):
     # Randomly select a CSV file from the list
@@ -155,6 +182,11 @@ def get_random_row_from_csv(csv_files):
             # Randomly select a row
             random_row_index = random.randint(0, len(rows) - 1)
             selected_row = rows[random_row_index]
+
+            # Emit the message via SocketIO
+            data = {"message": selected_row}
+            sio.emit("backend_message", data)
+            print(f"Message sent to Flask handler: {selected_row}")
             
             return selected_row  # Return the selected row
         
@@ -171,13 +203,15 @@ if __name__ == "__main__":
     tcp_thread = threading.Thread(target=run_tcp_server, daemon=True)
     tcp_thread.start()
 
+    connect_to_server()
+
     # Declare variables for CSV Dataset fetching
     DATASET_DIR = "datasets"
     csv_list = map_files_to_paths(DATASET_DIR, os.listdir(DATASET_DIR))
 
     # Declare variables for inference engine
     MAX_TOKEN = 128
-    serverIP = "136.244.192.76"
+    serverIP = "192.168.1.1"
     serverPorts = [3001, 3002, 3003, 3004]
     modelNames = ["models/1", "models/2", "models/3", "models/4"]
 
@@ -186,82 +220,121 @@ if __name__ == "__main__":
     models = load_all_models(modelNames, serverPorts)
 
     # Start the time to check
-start_time = time.time()
-while True: 
-    try:
-        current_client_id = None
-        should_interrupt = False
-        
-        # Check if there's a prompt in the queue
-        try: 
-            prompt, current_client_id = prompt_queue.get(timeout=1)
-        except queue.Empty: 
-            # If queue is empty, check elapsed time for auto generation
-            elapsed_time = time.time() - start_time
-            print(f"\nElapsed time: {elapsed_time}")
+    start_time = time.time()
+    while True: 
+        try:
+            current_client_id = None
+            should_interrupt = False
+            prompt = None
+            fetch = False
+
+            # Function to check for interruption and modify the outer variable
+            def check_for_new_prompt(queue):
+                try:
+                    # Check if there's a new prompt without removing it
+                    if not queue.empty():
+                        return True
+                    return False
+                except Exception as e:
+                    print(f"Error checking queue: {e}")
+                    return False
             
-            if elapsed_time >= 8:  # Time threshold for auto generation
-                prompt = get_random_row_from_csv(csv_list)
-                print(f"\nAuto-generating with prompt: {prompt}")
-            else:
-                # No prompt yet and not enough time elapsed, continue waiting
-                continue
-        
-        # Function to check for interruption and modify the outer variable
-        def check_for_new_prompt():
-            try:
-                # Check if there's a new prompt without removing it
-                if not prompt_queue.empty():
-                    return True
-                return False
-            except Exception as e:
-                print(f"Error checking queue: {e}")
-                return False
-        
-        # Set up for generation
-        iterations = random.randint(1, 4)
-        print(f"\nStarting generation with {iterations} iterations\n")
-        
-        prev_models = models
-        prev_text = [prompt] * len(models)
-        current_text = []
-        
-        # Main generation loop with interruption checks
-        for iteration in range(iterations):
-            if should_interrupt:
-                print("Interrupting generation due to new prompt")
-                break
-                
-            for i, model in enumerate(prev_models):
-                # Check for interruption before each model generation
-                if check_for_new_prompt():
-                    should_interrupt = True
+            # Check if there's a prompt in the queue
+            try: 
+                print(list(prompt_queue.queue))
+                print(check_for_new_prompt(prompt_queue))
+                # if check_for_new_prompt(prompt_queue): 
+                #     print(f'\n\n NO HELLO WORLD \n\n')
+                #     # for model in models: 
+                #     #     send_message_to_client(serverIP, model[1], "STOP_ENGINE")
+                #     prompt, current_client_id = prompt_queue.get(timeout=1)
+
+                # else:
+                #     print("\n\nHello World\n\n")
+                prompt, current_client_id = prompt_queue.get(timeout=1)
+
+            except queue.Empty: 
+                # If queue is empty, check elapsed time for auto generation
+                elapsed_time = time.time() - start_time
+                print(f"\nElapsed time: {elapsed_time}")
+
+                # if check_for_new_prompt(prompt_queue):
+                #     should_interrupt = True
+                #     break
+
+                if elapsed_time >= 30:  # Time threshold for auto generation
+                    prompt = get_random_row_from_csv(csv_list)
+                    fetch = True 
+                    prompt = trim_words(prompt[0])
+                    print(f"\nAuto-generating with prompt: {prompt}")
+                    fetching = True
+                else:
+                    # No prompt yet and not enough time elapsed, continue waiting
+                    continue
+            print("\n\n THIS PASSES HERE\n\n")
+
+            if fetch == False: 
+                for model in models: 
+                    send_message_to_client(serverIP, model[1], "STOP_ENGINE")
+            
+            # Set up for generation
+            iterations = random.randint(1, 3)
+            print(f"\nStarting generation with {iterations} iterations\n")
+
+            print(f"\nThis is the new prompt {prompt}\n")
+            
+            prev_models = models
+            
+            prev_text = [prompt] * len(models)
+            current_text = []
+            
+            print(f"\nContinue\n")
+
+            # Main generation loop with interruption checks
+            for iteration in range(iterations):
+                print(f'\n\n SHOULD INTERRUPT {should_interrupt}\n\n')
+
+                if should_interrupt:
+                    print(f'\n\n INTERRUPTING {should_interrupt}\n\n')
+                    for model in models: 
+                        send_message_to_client(serverIP, model[1], "STOP_ENGINE")
                     break
                     
-                # Generate response
-                text = from_model_generate(model[0], tokenizer, prev_text[i])
-                send_message_to_client(serverIP, serverPorts[0], text[0])
-                current_text.append(text)
+                for i, model in enumerate(prev_models):
+                    # Check for interruption before each model generation
+                    if check_for_new_prompt(prompt_queue):
+                        should_interrupt = True
+                        break
+                        
+                    # Generate response
+                    text = from_model_generate(model[0], tokenizer, prev_text[i])
+                    send_message_to_client(serverIP, model[1], text[0])
+                    current_text.append(text)
+                    
+                    # Check for interruption after each model generation
+                    if check_for_new_prompt(prompt_queue):
+                        should_interrupt = True
+                        break
                 
-                # Check for interruption after each model generation
-                if check_for_new_prompt():
-                    should_interrupt = True
+                # If interrupted during model loop, break out of iterations loop
+                if should_interrupt:
+                    print(f'\n\n INTERRUPTING {should_interrupt}\n\n')
+                    for model in models: 
+                        send_message_to_client(serverIP, model[1], "STOP_ENGINE")
                     break
+                    
+                # Prepare for next iteration if not interrupted
+                prev_models, prev_text = shuffle_without_reassignment(prev_models, current_text)
+                prev_text = current_text
+                current_text = []
             
-            # If interrupted during model loop, break out of iterations loop
-            if should_interrupt:
-                break
-                
-            # Prepare for next iteration if not interrupted
-            prev_models, prev_text = shuffle_without_reassignment(prev_models, current_text)
-            prev_text = current_text
-            current_text = []
-        
-        # Reset timer regardless of completion or interruption
-        start_time = time.time()
-        
-    except Exception as e: 
-        print(f"Error in inference engine: {e}")
+            # Reset timer regardless of completion or interruption
+            start_time = time.time()
+            # _, _ = prompt_queue_2.get(timeout=1) 
+            fetch = True
+            
+        except Exception as e: 
+            print(f"Error in inference engine: {e}")
 
     # start_time = time.time()
     # while True: 
@@ -290,7 +363,6 @@ while True:
     #             prev_text = [prompt, prompt, prompt, prompt]
     #             current_text = []
     #             for _ in range(iterations):
-    #                 if 
     #                 for i, model in enumerate(prev_models):
     #                     # Generate a response from each model
     #                     text = from_model_generate(model[0], tokenizer, prev_text[i])
